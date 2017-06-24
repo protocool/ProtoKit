@@ -25,68 +25,86 @@ import Foundation
 
 /**
  An EventualCompletion object encapsulates a supplied `Eventual` and a supplied completion block which is waiting to
- receive the result of the `Eventual`. It is designed to make it easy to expose a more trational "trailing completion
+ receive the result of the `Eventual`. It is intended to make it easy to expose a more trational "trailing completion
  block" API to callers, hiding any underlying `Eventual` objects as an implementation detail.
  
- If you wish to expose a cancellation facility to callers, you should vend an `NSProgress` object configured with a
- `cancellationHandler` that cancels the underlying unit of work (which would typically generate an NSUserCancelledError
- for propagation to downstream consumers).
+ Trailing completion blocks are an effective API design tool when you're trying to discourage callers from coordinating
+ complicated asynchronous flows: the resulting "pyramid of doom" is unpleasant to work with, so the offending coordonation
+ logic is (usually) quickly identified as something to be moved to a lower layer.
  
- If your preference is to simply not execute the EventualCompletion's completion block on cancellation (similar to the
- behavior of `NSURLConnection.cancel()`), then your `cancellationHandler` block may call the `EventualCompletion`
- `disposeHandler()` prior cancelling any outstanding work. However, you are strongly discouraged from using `disposeHandler()` 
- if your completion block exposes the eventual `Error?` to callers: developers who are familiar with modern system APIs
- (such as NSURLSession) will expect cancellations to be reported as an NSUserCancelledError.
+ EventualCompletion conforms to ProgressReporting, so that you may vend the Progress object to your callers.
  
- There is no need to directly retain a reference to an `EventualCompletion` once it has been constructed, unless you intend
- to call `disposeHandler()`.
+ The progress object is set up with a cancellationHandler, such that, if `progress.cancel()` is called on the main thread,
+ the originally-supplied trailing completion block will have been called (passing CocoaError(.userCancelled) as the error)
+ by the time `progress.cancel()` has returned.
+ 
  */
 
-public final class EventualCompletion<Subject> {
-
-    private typealias ResultHandler = (EventualResult<Subject>) -> Void
+public final class EventualCompletion<Subject>: NSObject, ProgressReporting {
     
-    private let lockQueue: DispatchQueue = DispatchQueue(label: "com.protocool.ProtoKit.EventualCompletion.lock")
-    private var resultHandler: ResultHandler?
+    public let progress: Progress
     
     /**
      Creates an EventualCompletion instance which will, unless cancelled, pass the eventual result to the supplied result handler when it is ready.
-    
-     You do not need to maintain a reference to the EventualCompletion except to (optionally) call `disposeHandler()` at a later time.
-    
+     
+     You do not need to maintain a reference to the EventualCompletion.
+     
      - important: The `resultHandler` closure executes on the main queue some time after control has returned to the caller.
      - parameter with: The underlying `Eventual` generating the result.
+     - parameter trackedBy: An optional discrete Progress which is tracking the work of the supplied underlying Eventual.
      - parameter resultHandler: A closure which accepts an `EventualResult`.
      - seealso: `Eventual`
      - seealso: `EventualResult`
      */
-    public init(with eventual: Eventual<Subject>, resultHandler: @escaping (EventualResult<Subject>) -> Void) {
-        self.resultHandler = resultHandler
+    @discardableResult
+    public init(with eventual: Eventual<Subject>, trackedBy underlyingProgress: Progress? = nil, resultHandler: @escaping (EventualResult<Subject>) -> Void) {
+        let (completion, resolve, reject) = Eventual<Subject>.make()
+        let progress = Progress.discreteProgress(totalUnitCount: 1)
         
-        eventual.either { result -> Void in
-            var handler: ResultHandler?
-            self.lockQueue.sync {
-                handler = self.resultHandler
-                self.resultHandler = nil
+        completion.either(resultHandler)
+        
+        eventual.either { result in
+            if underlyingProgress == nil {
+                progress.completedUnitCount = progress.totalUnitCount
             }
-
-            handler?(result)
+            
+            do { resolve(try result.checkedValue()) }
+            catch { reject(error) }
         }
+        
+        progress.cancellationHandler = {
+            reject(CocoaError(.userCancelled))
+        }
+        
+        if let child = underlyingProgress {
+            progress.addChild(child, withPendingUnitCount: 1)
+        }
+        else if Thread.isMainThread, eventual.hasResult {
+            // We know the `either` has already been scheduled to run
+            // after this spin of the runloop. We can help callers
+            // avoid unnecessary work by eagerly indicating that the
+            // underlying work is complete.
+            progress.completedUnitCount = progress.totalUnitCount
+        }
+        
+        self.progress = progress
     }
     
     /**
      Creates an EventualCompletion instance which will, unless cancelled, pass the eventual result to the supplied completion handler when it is ready.
      
-     You do not need to maintain a reference to the EventualCompletion except to (optionally) call `disposeHandler()` at a later time.
+     You do not need to maintain a reference to the EventualCompletion.
      
      - important: The `completionHandler` closure executes on the main queue some time after control has returned to the caller.
      - parameter with: The underlying `Eventual` generating the result.
-     - parameter resultHandler: A closure which accepts an optional generic `Subject` value and an optional `Error`.
+     - parameter trackedBy: An optional discrete Progress which is tracking the work of the supplied underlying Eventual.
+     - parameter completionHandler: A closure which accepts an optional generic `Subject` value and an optional `Error`.
      - seealso: `Eventual`
      - seealso: `EventualResult`
      */
-    public convenience init(with eventual: Eventual<Subject>, completionHandler: @escaping (Subject?, Error?) -> Void) {
-        self.init(with: eventual, resultHandler: { result in
+    @discardableResult
+    public convenience init(with eventual: Eventual<Subject>, trackedBy childProgress: Progress? = nil, completionHandler: @escaping (Subject?, Error?) -> Void) {
+        self.init(with: eventual, trackedBy: childProgress, resultHandler: { result in
             switch result {
             case .value(let value):
                 completionHandler(value, nil)
@@ -96,18 +114,34 @@ public final class EventualCompletion<Subject> {
         })
     }
     
-    
-    /**
-     Releases the result handler closure so that it will not be executed if the Eventual resolves after control is returned to the caller.
-
-     - important: Although this method is safe to call from any queue, non-main-queue callers cannot safely make inferences about whether
-                  the result handler closure is currently executing or has finished executing. On the main queue, callers can infer that,
-                  once control has been returned, either the handler closure will not execute, or it has already finished executing.
-     */
-    public func disposeHandler() {
-        lockQueue.sync {
-            self.resultHandler = nil
-        }
-    }
 }
 
+public extension Eventual {
+    
+    @discardableResult
+    public func yieldingResult(trackedBy progress: Progress? = nil, toHandler resultHandler: @escaping (EventualResult<Subject>) -> Void) -> Progress {
+        return EventualCompletion(with: self, trackedBy: progress, resultHandler: resultHandler)
+            .progress
+    }
+    
+    @discardableResult
+    public func yieldingCompletion(trackedBy progress: Progress? = nil, toHandler completionHandler: @escaping (Subject?, Error?) -> Void) -> Progress {
+        return EventualCompletion(with: self, trackedBy: progress, completionHandler: completionHandler)
+            .progress
+    }
+    
+    @discardableResult
+    public func yieldingSuccess(trackedBy progress: Progress? = nil, toHandler successHandler: @escaping (Bool, Error?) -> Void) -> Progress {
+        let completion = EventualCompletion(with: self, trackedBy: progress, resultHandler: {
+            switch $0 {
+            case .value:
+                successHandler(true, nil)
+            case .error(let error):
+                successHandler(false, error)
+            }
+        })
+        
+        return completion.progress
+    }
+    
+}
