@@ -60,15 +60,15 @@ public class PayloadIngester<ManagedObject: NSManagedObject> {
     }
     
     @discardableResult
-    public func upsert(with dictionaries: [Dictionary<String, Any>], scope: Dictionary<String, Any>? = nil, prefetch keyPaths: [String]? = nil, context: NSManagedObjectContext) throws -> [ManagedObject] {
+    public func upsert(with dictionaries: [Dictionary<String, Any>], scope: Dictionary<String, Any>? = nil, prefetch keyPaths: [String]? = nil, ordered: Bool = false, context: NSManagedObjectContext) throws -> [ManagedObject] {
         let result = try update(with: dictionaries, scope: scope, prefetch: keyPaths, context: context)
         
         guard result.remainder.isEmpty == false else {
-            return result.updated
+            return ordered ? try reorder(result.updated, accordingTo: dictionaries) : result.updated
         }
         
         let entity = ManagedObject.entity()
-        var updated = result.updated
+        var upserted = result.updated
         
         for dictionary in result.remainder {
             let inserted = ManagedObject(entity: entity, insertInto: context)
@@ -83,10 +83,10 @@ public class PayloadIngester<ManagedObject: NSManagedObject> {
                 throw IngestionError.payloadMappingFailed(ingesterName: name, underlyingError: error)
             }
             
-            updated.append(inserted)
+            upserted.append(inserted)
         }
         
-        return updated
+        return ordered ? try reorder(upserted, accordingTo: dictionaries) : upserted
     }
     
     @discardableResult
@@ -123,4 +123,24 @@ public class PayloadIngester<ManagedObject: NSManagedObject> {
         return PayloadIngesterResult(updated: existing, remainder: Array(byIdentity.values))
     }
     
+    public func reorder(_ objects: [ManagedObject], accordingTo dictionaries: [Dictionary<String, Any>]) throws -> [ManagedObject] {
+        let byIdentity = try objects.indexedBy { managedObject -> AnyHashable in
+            guard let identity = managedObject.value(forKey: identityAttributeName) as? AnyHashable else {
+                throw IngestionError.nullIngestedIdentityAttribute(ingesterName: name, key: identityKey)
+            }
+            return identity
+        }
+        
+        return try dictionaries.map { dictionary -> ManagedObject in
+            guard let identity = identityTransformers.applyTransfomations(to: dictionary[identityKey]) as? AnyHashable else {
+                throw IngestionError.nullPayloadIdentityValue(ingesterName: name, key: identityKey)
+            }
+            
+            guard let managedObject = byIdentity[identity] else {
+                throw IngestionError.orderingFailed(ingesterName: name, identity: identity)
+            }
+            
+            return managedObject
+        }
+    }
 }

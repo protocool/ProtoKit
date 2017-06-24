@@ -31,7 +31,9 @@ public enum IngestionError: Error {
     case checkedDowncastFailed(message: String, callerInfo: CallerInfo)
     
     case nullPayloadIdentityValue(ingesterName: String, key: String)
+    case nullIngestedIdentityAttribute(ingesterName: String, key: String)
     case payloadMappingFailed(ingesterName: String, underlyingError: Error)
+    case orderingFailed(ingesterName: String, identity: AnyHashable)
     
     public static func makeProcessingFailed(_ message: String, file: StaticString = #file, function: StaticString = #function, line: UInt = #line) -> IngestionError {
         return IngestionError.processingFailed(message: message, callerInfo: CallerInfo(file, function, line))
