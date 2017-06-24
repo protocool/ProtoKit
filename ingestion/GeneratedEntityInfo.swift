@@ -36,5 +36,4 @@ public protocol RelationshipInfo {
     associatedtype ManagedObject: NSManagedObject
     static var all: [Self] { get }
     var name: String { get }
-    // TODO: accessors for cardinality and inverse might provide interesting opportinities for simple dirtying
 }

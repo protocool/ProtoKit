@@ -184,7 +184,7 @@ public struct AttributeMap<T: AttributeInfo>: ScalarApplication {
         let existing = try existingValue(forAttributeName: attributeName, of: managedObject)
         let sanitized: Any
         
-        switch (attributeType) {
+        switch attributeType {
         case .stringAttributeType:
             switch applicable {
             case let stringValue as NSString:
@@ -266,4 +266,3 @@ internal protocol DictionaryApplication {
 private protocol ScalarApplication {
     func applyValue(_ value: Any?, to managedObject: NSManagedObject) throws -> Void
 }
-

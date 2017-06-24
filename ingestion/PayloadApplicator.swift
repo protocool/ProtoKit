@@ -41,4 +41,3 @@ public extension NSManagedObject {
         try applicator.applyValuesForKeys(from: dictionary, to: self)
     }
 }
-
