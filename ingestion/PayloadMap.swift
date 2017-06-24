@@ -97,6 +97,26 @@ public struct PayloadMap<T: AttributeInfo>: DictionaryApplication {
         }
     }
     
+    mutating
+    public func addMapping(where keyPath: String, isAppliedBy otherMap: PayloadMap<T>) {
+        addMapping(where: keyPath.characters.split(separator: ".").map({String($0)}), isAppliedBy: otherMap)
+    }
+
+    mutating
+    private func addMapping(where components: [String], isAppliedBy otherMap: PayloadMap<T>) {
+        var remainingComponents = components
+        let firstComponent = remainingComponents.removeFirst()
+        
+        if remainingComponents.isEmpty {
+            nestedMaps[firstComponent] = otherMap
+        }
+        else {
+            var nested = nestedMaps[firstComponent] ?? PayloadMap()
+            nested.addMapping(where: remainingComponents, isAppliedBy: otherMap)
+            nestedMaps[firstComponent] = nested
+        }
+    }
+
     public func applyValuesForKeys(from dictionary: Dictionary<String, Any>, to managedObject: NSManagedObject) throws -> Void {
         for (key, value) in dictionary {
             do {
