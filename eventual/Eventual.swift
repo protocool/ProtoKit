@@ -453,11 +453,53 @@ public final class Eventual<Subject>: ResultProcessor {
         return eventual
     }
     
+    /**
+     Vends a new Eventual instance with a Void subject type.
+     
+     - returns: A new Eventual instance.
+     */
+    public func asVoid() -> Eventual<Void> {
+        let eventual = Eventual<Void>()
+        
+        // asVoid() is often used for erasure when gathering heterogeneous outcomes using Eventual.results(of:),
+        // which tries to avoid unnecessary async-waiting when all results are ready immediately, so we should
+        // avoid contributing to async-waiting ourselves.
+        
+        if Thread.isMainThread, let readyResult = result {
+            switch readyResult {
+            case .value:
+                eventual.result = .value()
+            case .error(let error):
+                eventual.result = .error(error)
+            }
+            
+            eventual.isDistributable = true
+        }
+        else {
+            eventual.processWork = { [unowned self] in
+                guard let result = self.result else {
+                    preconditionFailure("nil result during processWork()")
+                }
+                
+                switch result {
+                case .value:
+                    eventual.result = .value()
+                case .error(let error):
+                    eventual.result = .error(error)
+                }
+            }
+            
+            addProcessor(eventual)
+        }
+
+        return eventual
+    }
+
     // Designated initializer is intentionally private b/c external callers have
     // no way to resolve an Eventual that's been intialized like this.
     private init() {}
 
-    private var processWork: Optional<() -> ()> = nil
+    private var processWork: Optional<() -> Void> = nil
 
     private let processorQueue: DispatchQueue = DispatchQueue(label: "com.protocool.ProtoKit.Eventual.processor")
     private var processors: [ResultProcessor] = []
@@ -634,4 +676,3 @@ private protocol ResultProcessor {
     func process()
     func surrenderProcessors() -> [ResultProcessor]
 }
-

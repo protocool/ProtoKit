@@ -52,7 +52,7 @@ public struct EventualIterator {
      until the closure either returns nil or throws an error.
      - parameter work: A closure which accepts a Progress and an Optional previous EventualResult, returning an Optional Eventual
      */
-    public init<Subject>(work: @escaping (_ progress: Progress, _ previousResult: EventualResult<Subject>?) throws -> Optional<Eventual<Subject>>) {
+    public init<Subject>(work: @escaping (_ progress: Progress, _ previousResult: EventualResult<Subject>?) throws -> Eventual<Subject>?) {
         let generatorProgress = Progress.discreteProgress(totalUnitCount: -1)
         self.progress = generatorProgress
         
@@ -91,3 +91,55 @@ public struct EventualIterator {
     }
 }
 
+public extension Eventual {
+    
+    public static func results<T: Collection>(of collection: T) -> Eventual<[EventualResult<Subject>]> where T.Iterator.Element: Eventual<Subject> {
+        var input = collection.makeIterator()
+        var results: [EventualResult<Subject>] = []
+        
+        // If possible, we consume the elements of the collection's iterator,
+        // immediately gathering results until we encounter one that isn't yet
+        // available, handing over to EventualIterator as appropriate.
+        
+        var nextElement: Eventual<Subject>? = input.next()
+        
+        if Thread.isMainThread {
+            while let current = nextElement, current.hasResult {
+                do { results.append(.value(try current.checkedValue())) }
+                catch { results.append(.error(error)) }
+                
+                nextElement = input.next()
+            }
+        }
+        
+        // If there is no nextElement waiting for a result, then we're done.
+        if nextElement == nil {
+            return Eventual<[EventualResult<Subject>]>(value: results)
+        }
+        
+        // Otherwise, use an EventualIterator to wait for the remaining elements.
+        let iterator = EventualIterator { _ -> Eventual<Subject>? in
+            return nextElement?.either { result -> Void in
+                results.append(result)
+                nextElement = input.next()
+            }
+        }
+        
+        return iterator.eventual.either { _ in return results }
+    }
+
+    public static func resultValues<T: Collection>(of collection: T) -> Eventual<[Subject]> where T.Iterator.Element: Eventual<Subject> {
+        let pending = results(of: collection)
+        
+        guard pending.hasResult else {
+            return pending.then { try $0.map { try $0.checkedValue() } }
+        }
+        
+        do {
+            return Eventual<[Subject]>(value: try pending.checkedValue().map({ try $0.checkedValue() }))
+        }
+        catch {
+            return Eventual<[Subject]>(error: error)
+        }
+    }
+}
