@@ -156,7 +156,7 @@ public struct AttributeMap<T: AttributeInfo>: ScalarApplication {
             }
             
             if managedObject.value(forKey: attributeName) != nil {
-                managedObject.setNilValueForKey(attributeName)
+                managedObject.setValue(nil, forKey: attributeName)
             }
             return
         }
