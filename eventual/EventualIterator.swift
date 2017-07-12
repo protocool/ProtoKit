@@ -118,7 +118,7 @@ public extension Eventual {
         }
         
         // Otherwise, use an EventualIterator to wait for the remaining elements.
-        let iterator = EventualIterator { _ -> Eventual<Subject>? in
+        let iterator = EventualIterator { _,_   -> Eventual<Subject>? in
             return nextElement?.either { result -> Void in
                 results.append(result)
                 nextElement = input.next()
