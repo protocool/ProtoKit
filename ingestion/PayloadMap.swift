@@ -216,6 +216,12 @@ public struct AttributeMap<T: AttributeInfo>: ScalarApplication {
                 throw InternalError.attributeMappingFailed(name: attributeName)
             }
             
+        case .UUIDAttributeType:
+            sanitized = try sanitizedUUID(from: applicable, for: attributeName)
+            
+        case .URIAttributeType:
+            sanitized = try sanitizedURL(from: applicable, for: attributeName)
+
         case .objectIDAttributeType: fallthrough
         case .binaryDataAttributeType: fallthrough
         case .transformableAttributeType: fallthrough
@@ -246,6 +252,30 @@ public struct AttributeMap<T: AttributeInfo>: ScalarApplication {
         default:
             preconditionFailure("unexpected attribute type for string to number coercion: \(type)")
         }
+    }
+    
+    func sanitizedUUID(from input: Any, for attributeName: String) throws -> UUID {
+        if let uuid = input as? UUID {
+            return uuid
+        }
+        else if let stringInput = input as? String, let uuid = UUID(uuidString: stringInput) {
+            return uuid
+        }
+        
+        assertionFailure("can't coerce to UUID")
+        throw InternalError.attributeMappingFailed(name: attributeName)
+    }
+    
+    func sanitizedURL(from input: Any, for attributeName: String) throws -> URL {
+        if let url = input as? URL {
+            return url
+        }
+        else if let stringInput = input as? String, let url = URL(string: stringInput) {
+            return url
+        }
+        
+        assertionFailure("can't coerce to URL")
+        throw InternalError.attributeMappingFailed(name: attributeName)
     }
     
     func existingValue(forAttributeName attributeName: String, of managedObject: NSManagedObject) throws -> NSObjectProtocol? {
