@@ -1,7 +1,7 @@
 //  Ingestion.swift
 //
 //  ProtoKit
-//  Copyright © 2016 Trevor Squires.
+//  Copyright © 2016-2017 Trevor Squires.
 //
 //  Permission is hereby granted, free of charge, to any person obtaining a copy
 //  of this software and associated documentation files (the "Software"), to deal
