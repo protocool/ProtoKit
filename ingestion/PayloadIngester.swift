@@ -38,7 +38,7 @@ public class PayloadIngester<ManagedObject: NSManagedObject> {
     
     private let mapper: PayloadApplicator
     
-    public init<T: AttributeInfo>(payloadMap: PayloadMap<T>, name: String? = nil) where T.ManagedObject == ManagedObject {
+    public init<T>(payloadMap: PayloadMap<T>, name: String? = nil) where T.ManagedObject == ManagedObject {
         guard let identityMap = payloadMap.identityMap else {
             preconditionFailure("PayloadMap.identityMap cannot be nil")
         }
