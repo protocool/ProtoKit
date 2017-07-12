@@ -468,7 +468,7 @@ public final class Eventual<Subject>: ResultProcessor {
         if Thread.isMainThread, let readyResult = result {
             switch readyResult {
             case .value:
-                eventual.result = .value()
+                eventual.result = .value(())
             case .error(let error):
                 eventual.result = .error(error)
             }
@@ -483,7 +483,7 @@ public final class Eventual<Subject>: ResultProcessor {
                 
                 switch result {
                 case .value:
-                    eventual.result = .value()
+                    eventual.result = .value(())
                 case .error(let error):
                     eventual.result = .error(error)
                 }

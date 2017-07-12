@@ -77,7 +77,7 @@ public struct EventualIterator {
                     }
                     else {
                         // until the work closure returns nil, signalling that we're done
-                        resolve()
+                        resolve(())
                     }
                 }
                 catch {
