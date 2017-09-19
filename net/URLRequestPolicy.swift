@@ -25,6 +25,18 @@ import Foundation
 
 public final class URLRequestPolicy {
     
+    public enum HTTPMethod: String {
+        case get     = "GET"
+        case post    = "POST"
+        case put     = "PUT"
+        case patch   = "PATCH"
+        case delete  = "DELETE"
+        case head    = "HEAD"
+        case options = "OPTIONS"
+        case trace   = "TRACE"
+        case connect = "CONNECT"
+    }
+
     public private(set) static var defaultUserAgent: String = {
         let mainBundle = Bundle.main
         let bundleName = mainBundle.object(forInfoDictionaryKey: "CFBundleDisplayName") ?? mainBundle.object(forInfoDictionaryKey: "CFBundleName")
@@ -78,14 +90,14 @@ public final class URLRequestPolicy {
         authorizationToken = "Bearer \(bearerToken)"
     }
 
-    public func request(withURL url: URL, method: String) -> URLRequest {
+    public func request(withURL url: URL, method: HTTPMethod) -> URLRequest {
         var request = URLRequest(url: url)
-        request.httpMethod = method
+        request.httpMethod = method.rawValue
         setPolicyValuesForRequest(&request)
         return request
     }
 
-    public func request(withURLComponents components: URLComponents, method: String) -> URLRequest {
+    public func request(withURLComponents components: URLComponents, method: HTTPMethod) -> URLRequest {
         return request(withURL: components.url(relativeTo: baseURL)!, method: method)
     }
     
