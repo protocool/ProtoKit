@@ -60,7 +60,16 @@ public struct PayloadMap<T: AttributeInfo>: DictionaryApplication {
         
         addMapping(forPathComponents: [identityKey], appliedBy: attributeMap)
     }
-    
+
+    public init(identity attribute: T, transformers: [ValueTransformer] = []) {
+        let attributeMap = AttributeMap<T>(transformers: transformersPrefix + transformers, attribute: attribute)
+        
+        self.identityKey = attribute.name
+        self.identityMap = attributeMap
+        
+        addMapping(forPathComponents: [attribute.name], appliedBy: attributeMap)
+    }
+
     public init() {
         identityKey = nil
         identityMap = nil
@@ -77,6 +86,11 @@ public struct PayloadMap<T: AttributeInfo>: DictionaryApplication {
     public func addMapping(where keyPath: String, transformedBy transformers: [ValueTransformer] = [], updates attribute: T) {
         let scalarMap = AttributeMap<T>(transformers: transformersPrefix + transformers, attribute: attribute)
         addMapping(forPathComponents: keyPath.characters.split(separator: ".").map({String($0)}), appliedBy: scalarMap)
+    }
+
+    mutating
+    public func addMapping(for attribute: T, transformedBy transformers: [ValueTransformer] = []) {
+        addMapping(where: attribute.name, transformedBy: transformers, updates: attribute)
     }
 
     mutating
