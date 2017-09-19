@@ -36,16 +36,18 @@ public class PayloadIngester<ManagedObject: NSManagedObject> {
     public let identityTransformers: [ValueTransformer]
     public let identityAttributeName: String
     
+    private let identityTransformation: ScalarObjectTransformation
     private let mapper: PayloadApplicator
     
     public init<T>(payloadMap: PayloadMap<T>, name: String? = nil) where T.ManagedObject == ManagedObject {
-        guard let identityMap = payloadMap.identityMap else {
-            preconditionFailure("PayloadMap.identityMap cannot be nil")
+        guard let identityKey = payloadMap.identityKey, let identityMap = payloadMap.identityMap else {
+            preconditionFailure("ingester requires a PayloadMap that has been initialized with an identity mapping")
         }
         
-        identityKey = identityMap.key
-        identityTransformers = identityMap.transformers
-        identityAttributeName = identityMap.attribute.name
+        self.identityKey = identityKey
+        self.identityTransformers = identityMap.transformers
+        self.identityAttributeName = identityMap.attribute.name
+        self.identityTransformation = identityMap
         
         self.name = name.map({"\($0) (\(ManagedObject.self))"}) ?? "Unnamed PayloadIngester (\(ManagedObject.self))"
         self.mapper = PayloadApplicator(payloadMap: payloadMap)
@@ -91,8 +93,8 @@ public class PayloadIngester<ManagedObject: NSManagedObject> {
     
     @discardableResult
     public func update(with dictionaries: [Dictionary<String, Any>], scope: Dictionary<String, Any>? = nil, prefetch keyPaths: [String]? = nil, context: NSManagedObjectContext) throws -> PayloadIngesterResult<ManagedObject> {
-        var byIdentity = try dictionaries.indexedBy { dictionary -> AnyHashable in
-            guard let identity = identityTransformers.applyTransfomations(to: dictionary[identityKey]) as? AnyHashable else {
+        var byIdentity = try dictionaries.indexedBy { dictionary -> NSObject in
+            guard let identity: NSObject = (try? identityTransformation.transformedObject(from: dictionary[identityKey])) ?? nil else {
                 throw IngestionError.nullPayloadIdentityValue(ingesterName: name, key: identityKey)
             }
             return identity
@@ -109,7 +111,7 @@ public class PayloadIngester<ManagedObject: NSManagedObject> {
         
         let existing = try context.fetch(request)
         for case let object as NSManagedObject in existing {
-            let identity = object.value(forKey: identityAttributeName) as! AnyHashable
+            let identity = object.value(forKey: identityAttributeName) as! NSObject
             let dictionary = byIdentity.removeValue(forKey: identity)!
             
             do {
@@ -124,15 +126,15 @@ public class PayloadIngester<ManagedObject: NSManagedObject> {
     }
     
     public func reorder(_ objects: [ManagedObject], accordingTo dictionaries: [Dictionary<String, Any>]) throws -> [ManagedObject] {
-        let byIdentity = try objects.indexedBy { managedObject -> AnyHashable in
-            guard let identity = managedObject.value(forKey: identityAttributeName) as? AnyHashable else {
+        let byIdentity = try objects.indexedBy { managedObject -> NSObject in
+            guard let identity = managedObject.value(forKey: identityAttributeName) as? NSObject else {
                 throw IngestionError.nullIngestedIdentityAttribute(ingesterName: name, key: identityKey)
             }
             return identity
         }
         
         return try dictionaries.map { dictionary -> ManagedObject in
-            guard let identity = identityTransformers.applyTransfomations(to: dictionary[identityKey]) as? AnyHashable else {
+            guard let identity: NSObject = (try? identityTransformation.transformedObject(from: dictionary[identityKey])) ?? nil else {
                 throw IngestionError.nullPayloadIdentityValue(ingesterName: name, key: identityKey)
             }
             

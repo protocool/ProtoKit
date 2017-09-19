@@ -38,8 +38,8 @@ public enum PayloadMapError: Error {
     }
 }
 
-enum InternalError: Error {
-    case attributeMappingFailed(name: String)
+public enum AttributeMapError: Error {
+    case mappingFailed(name: String)
 }
 
 private let transformersPrefix: [ValueTransformer] = [ValueTransformer(forName: NSValueTransformerName.payloadNullToNil)!]
@@ -49,15 +49,20 @@ public struct PayloadMap<T: AttributeInfo>: DictionaryApplication {
     private var scalarMaps: Dictionary<String, ScalarApplication> = [:]
     private var nestedMaps: Dictionary<String, PayloadMap> = [:]
 
+    public let identityKey: String?
     public let identityMap: AttributeMap<T>?
     
     public init(identityKey: String, transformers: [ValueTransformer] = [], attribute: T) {
-        let attributeMap = AttributeMap<T>(key: identityKey, transformers: transformersPrefix + transformers, attribute: attribute)
-        identityMap = attributeMap
-        addMapping(forPathComponents: [identityKey], to: attributeMap)
+        let attributeMap = AttributeMap<T>(transformers: transformersPrefix + transformers, attribute: attribute)
+        
+        self.identityKey = identityKey
+        self.identityMap = attributeMap
+        
+        addMapping(forPathComponents: [identityKey], appliedBy: attributeMap)
     }
     
     public init() {
+        identityKey = nil
         identityMap = nil
     }
     
@@ -70,20 +75,20 @@ public struct PayloadMap<T: AttributeInfo>: DictionaryApplication {
     
     mutating
     public func addMapping(where keyPath: String, transformedBy transformers: [ValueTransformer] = [], updates attribute: T) {
-        let scalarMap = AttributeMap<T>(key: keyPath, transformers: transformersPrefix + transformers, attribute: attribute)
-        addMapping(forPathComponents: keyPath.characters.split(separator: ".").map({String($0)}), to: scalarMap)
+        let scalarMap = AttributeMap<T>(transformers: transformersPrefix + transformers, attribute: attribute)
+        addMapping(forPathComponents: keyPath.characters.split(separator: ".").map({String($0)}), appliedBy: scalarMap)
     }
 
     mutating
     public func addMapping(where keyPath: String, transformedBy transformers: [ValueTransformer] = [], performs work: @escaping (_ receiver: T.ManagedObject, _ value: Any?) throws -> Void) {
-        let customMap = CustomMap<T>(key: keyPath, transformers: transformersPrefix + transformers) { (receiver, value) in
+        let customMap = CustomMap<T>(transformers: transformersPrefix + transformers) { (receiver, value) in
             try work(receiver, value)
         }
-        addMapping(forPathComponents: keyPath.characters.split(separator: ".").map({String($0)}), to: customMap)
+        addMapping(forPathComponents: keyPath.characters.split(separator: ".").map({String($0)}), appliedBy: customMap)
     }
 
     mutating
-    private func addMapping(forPathComponents components: [String], to scalarMap: ScalarApplication) {
+    private func addMapping(forPathComponents components: [String], appliedBy scalarMap: ScalarApplication) {
         var remainingComponents = components
         let firstComponent = remainingComponents.removeFirst()
         
@@ -92,7 +97,7 @@ public struct PayloadMap<T: AttributeInfo>: DictionaryApplication {
         }
         else {
             var nested = nestedMaps[firstComponent] ?? PayloadMap()
-            nested.addMapping(forPathComponents: remainingComponents, to: scalarMap)
+            nested.addMapping(forPathComponents: remainingComponents, appliedBy: scalarMap)
             nestedMaps[firstComponent] = nested
         }
     }
@@ -127,7 +132,7 @@ public struct PayloadMap<T: AttributeInfo>: DictionaryApplication {
                     try mapper.applyValue(value, to: managedObject)
                 }
             }
-            catch InternalError.attributeMappingFailed(let attributeName) {
+            catch AttributeMapError.mappingFailed(let attributeName) {
                 throw PayloadMapError.attributeMappingFailed(keyPath: key, name: attributeName, value: value)
             }
             catch let error as PayloadMapError {
@@ -143,36 +148,43 @@ public struct PayloadMap<T: AttributeInfo>: DictionaryApplication {
 }
 
 public struct CustomMap<T: AttributeInfo>: ScalarApplication {
-    public let key: String
     public let transformers: [ValueTransformer]
     public let work: (_ receiver: T.ManagedObject, _ value: Any?) throws -> Void
     
-    func applyValue(_ value: Any?, to managedObject: NSManagedObject) throws -> Void {
+    public init(transformers: [ValueTransformer], work: @escaping (_ receiver: T.ManagedObject, _ value: Any?) throws -> Void) {
+        self.transformers = transformers
+        self.work = work
+    }
+    
+    public func applyValue(_ value: Any?, to managedObject: NSManagedObject) throws -> Void {
         let transformed = transformers.applyTransfomations(to: value)
         return try work(managedObject as! T.ManagedObject, transformed)
     }
 }
 
-public struct AttributeMap<T: AttributeInfo>: ScalarApplication {
-    public let key: String
+public struct AttributeMap<T: AttributeInfo>: ScalarApplication, ScalarObjectTransformation {
     public let transformers: [ValueTransformer]
     public let attribute: T
-    
-    func applyValue(_ value: Any?, to managedObject: NSManagedObject) throws -> Void {
+
+    public init(transformers: [ValueTransformer], attribute: T) {
+        self.transformers = transformers
+        self.attribute = attribute
+    }
+
+    public func applyValue(_ value: Any?, to managedObject: NSManagedObject) throws -> Void {
         let attributeName = attribute.name
-        let attributeType = attribute.type
-        var transformed = transformers.applyTransfomations(to: value)
+        var transformed = try transformedObject(from: value)
         
-        // Attempt to fallback to the model's default value
+        // When nil but required, attempt to fallback to the model's default value
         if transformed == nil && attribute.isOptional == false {
             assertionFailure("nil value not permitted by model, production would fallback to default")
-            transformed = managedObject.entity.attributesByName[attributeName]?.defaultValue
+            transformed = managedObject.entity.attributesByName[attributeName]?.defaultValue as? NSObject
         }
         
         guard let applicable = transformed else {
             guard attribute.isOptional == true else {
                 assertionFailure("nil value not permitted by model")
-                throw InternalError.attributeMappingFailed(name: attributeName)
+                throw AttributeMapError.mappingFailed(name: attributeName)
             }
             
             if managedObject.value(forKey: attributeName) != nil {
@@ -182,22 +194,48 @@ public struct AttributeMap<T: AttributeInfo>: ScalarApplication {
         }
         
         let existing = try existingValue(forAttributeName: attributeName, of: managedObject)
-        let sanitized: Any
         
+        if existing?.isEqual(applicable) != true {
+            managedObject.setValue(applicable, forKey: attributeName)
+        }
+    }
+    
+    public func transformedObject(from value: Any?) throws -> NSObject? {
+        // A nil result from the ValueTransformers doesn't (on its own) indicate an error.
+        guard let transformedValue = transformers.applyTransfomations(to: value) else { return nil }
+
+        let attributeName = attribute.name
+        let attributeType = attribute.type
+
+        // HOWEVER, a non-nil transformed value which cannot be downcast to NSObject
+        // most certainly is an error: CoreData is built upon the obj-c runtime, and this
+        // value is going to be applied using KVC.
+        guard let valueObject = transformedValue as? NSObject else {
+            assertionFailure("input value is expected to be downcastable to NSObject")
+            throw AttributeMapError.mappingFailed(name: attributeName)
+        }
+
+        // It's not uncommon for server payloads to be a bit inconsistent WRT string and number
+        // representations, so we silently apply the appropriate type coercion to avoid having
+        // to declare value transformers all over the place when setting up our PayloadMaps.
+        //
+        // Additionally, UUID and URL both have initializers that accept string representations,
+        // so we silently attempt that coercion as well.
+        //
         switch attributeType {
         case .stringAttributeType:
-            switch applicable {
+            switch valueObject {
             case let stringValue as NSString:
-                sanitized = stringValue
+                return stringValue
             case let numberValue as NSNumber:
-                sanitized = numberValue.stringValue
+                return numberValue.stringValue as NSObject
             default:
                 assertionFailure("can't infer coercion to NSString")
-                throw InternalError.attributeMappingFailed(name: attributeName)
+                throw AttributeMapError.mappingFailed(name: attributeName)
             }
             
         case .dateAttributeType:
-            sanitized = applicable
+            return valueObject
             
         case .integer16AttributeType: fallthrough
         case .integer32AttributeType: fallthrough
@@ -206,35 +244,31 @@ public struct AttributeMap<T: AttributeInfo>: ScalarApplication {
         case .floatAttributeType: fallthrough
         case .booleanAttributeType: fallthrough
         case .decimalAttributeType:
-            switch applicable {
+            switch valueObject {
             case let numberValue as NSNumber:
-                sanitized = numberValue
+                return numberValue
             case let stringValue as NSString:
-                sanitized = try sanitizedNumber(fromString: stringValue, asType: attributeType)
+                return try coercedNumber(fromString: stringValue, asType: attributeType)
             default:
                 assertionFailure("can't infer coercion to NSNumber")
-                throw InternalError.attributeMappingFailed(name: attributeName)
+                throw AttributeMapError.mappingFailed(name: attributeName)
             }
             
         case .UUIDAttributeType:
-            sanitized = try sanitizedUUID(from: applicable, for: attributeName)
+            return try coercedUUID(from: valueObject, for: attributeName)
             
         case .URIAttributeType:
-            sanitized = try sanitizedURL(from: applicable, for: attributeName)
-
+            return try coercedURL(from: valueObject, for: attributeName)
+            
         case .objectIDAttributeType: fallthrough
         case .binaryDataAttributeType: fallthrough
         case .transformableAttributeType: fallthrough
         case .undefinedAttributeType:
-            sanitized = applicable
-        }
-        
-        if existing?.isEqual(sanitized) != true {
-            managedObject.setValue(sanitized, forKey: attributeName)
+            return valueObject
         }
     }
     
-    func sanitizedNumber(fromString input: NSString, asType type: NSAttributeType) throws -> NSNumber {
+    func coercedNumber(fromString input: NSString, asType type: NSAttributeType) throws -> NSNumber {
         switch type {
         case .integer16AttributeType: fallthrough
         case .integer32AttributeType:
@@ -254,34 +288,34 @@ public struct AttributeMap<T: AttributeInfo>: ScalarApplication {
         }
     }
     
-    func sanitizedUUID(from input: Any, for attributeName: String) throws -> UUID {
-        if let uuid = input as? UUID {
+    func coercedUUID(from input: Any, for attributeName: String) throws -> NSUUID {
+        if let uuid = input as? NSUUID {
             return uuid
         }
-        else if let stringInput = input as? String, let uuid = UUID(uuidString: stringInput) {
+        else if let stringInput = input as? String, let uuid = NSUUID(uuidString: stringInput) {
             return uuid
         }
         
         assertionFailure("can't coerce to UUID")
-        throw InternalError.attributeMappingFailed(name: attributeName)
+        throw AttributeMapError.mappingFailed(name: attributeName)
     }
     
-    func sanitizedURL(from input: Any, for attributeName: String) throws -> URL {
-        if let url = input as? URL {
+    func coercedURL(from input: Any, for attributeName: String) throws -> NSURL {
+        if let url = input as? NSURL {
             return url
         }
-        else if let stringInput = input as? String, let url = URL(string: stringInput) {
+        else if let stringInput = input as? String, let url = NSURL(string: stringInput) {
             return url
         }
         
         assertionFailure("can't coerce to URL")
-        throw InternalError.attributeMappingFailed(name: attributeName)
+        throw AttributeMapError.mappingFailed(name: attributeName)
     }
     
-    func existingValue(forAttributeName attributeName: String, of managedObject: NSManagedObject) throws -> NSObjectProtocol? {
-        return managedObject.value(forKey: attributeName).map { value -> NSObjectProtocol in
-            guard let conformingValue = value as? NSObjectProtocol else {
-                preconditionFailure("the non-nil value for \(attributeName) does not conform to NSObjectProtocol")
+    func existingValue(forAttributeName attributeName: String, of managedObject: NSManagedObject) throws -> NSObject? {
+        return managedObject.value(forKey: attributeName).map { value -> NSObject in
+            guard let conformingValue = value as? NSObject else {
+                preconditionFailure("the non-nil value for \(attributeName) does not conform to NSObject")
             }
             
             return conformingValue
@@ -293,6 +327,10 @@ internal protocol DictionaryApplication {
     func applyValuesForKeys(from dictionary: Dictionary<String, Any>, to managedObject: NSManagedObject) throws -> Void
 }
 
-private protocol ScalarApplication {
+internal protocol ScalarApplication {
     func applyValue(_ value: Any?, to managedObject: NSManagedObject) throws -> Void
+}
+
+internal protocol ScalarObjectTransformation {
+    func transformedObject(from value: Any?) throws -> NSObject?
 }
