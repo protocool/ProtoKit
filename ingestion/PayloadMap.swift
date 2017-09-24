@@ -189,15 +189,21 @@ public struct AttributeMap<T: AttributeInfo>: ScalarApplication, ScalarObjectTra
         let attributeName = attribute.name
         var transformed = try transformedObject(from: value)
         
-        // When nil but required, attempt to fallback to the model's default value
+        // When nil but required, attempt fallback to the model's default value
         if transformed == nil && attribute.isOptional == false {
-            assertionFailure("nil value not permitted by model, production would fallback to default")
             transformed = managedObject.entity.attributesByName[attributeName]?.defaultValue as? NSObject
+            assert(transformed != nil, "nil value not permitted by model: no default value available for production-build fallback")
+
+            // Even though production builds will attempt fallback to assigning the default
+            // value defined in the model, it may not be what you intended.
+            // Either make the property nullable, or define a value transformer to sanitize
+            // payload nulls, or use a custom mapper with a `performs:` block to conditinally
+            // accept the payload null.
+            assertionFailure("nil value not permitted by model: production build will assign model default value")
         }
         
         guard let applicable = transformed else {
             guard attribute.isOptional == true else {
-                assertionFailure("nil value not permitted by model")
                 throw AttributeMapError.mappingFailed(name: attributeName)
             }
             
