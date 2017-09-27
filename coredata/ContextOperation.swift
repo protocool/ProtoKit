@@ -133,6 +133,11 @@ public final class ContextOperation<Subject> : Operation, ProgressReporting {
                     operationProgress.resignCurrent()
                     self.workCompleted = true
                     
+                    guard self.isCancelled == false else {
+                        operationContext.rollback()
+                        throw ContextOperationError.operationCancelled(callerInfo: operationCallerInfo)
+                    }
+
                     do {
                         let saveProgress = Progress(totalUnitCount: 1, parent: operationProgress, pendingUnitCount: 1)
 
