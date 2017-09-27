@@ -48,7 +48,7 @@ public final class ContextOperation<Subject> : Operation, ProgressReporting {
 
         self.work = work
         self.callerInfo = CallerInfo(file, function, line)
-        self.progress =  Progress.discreteProgress(totalUnitCount: 1)
+        self.progress =  Progress.discreteProgress(totalUnitCount: 10)
         self.mergePolicy = mergePolicy
         
         super.init()
@@ -122,12 +122,22 @@ public final class ContextOperation<Subject> : Operation, ProgressReporting {
         
             operationContext.performAndWait {
                 do {
+                    operationProgress.becomeCurrent(withPendingUnitCount: 9)
+                    defer {
+                        if Progress.current() === operationProgress {
+                            operationProgress.resignCurrent()
+                        }
+                    }
+
                     let subject = try operationWork(operationContext)
+                    operationProgress.resignCurrent()
                     self.workCompleted = true
                     
                     do {
+                        let saveProgress = Progress(totalUnitCount: 1, parent: operationProgress, pendingUnitCount: 1)
+
                         try operationContext.save()
-                        operationProgress.completedUnitCount = 1
+                        saveProgress.completedUnitCount = 1
                         
                         let lastSaveNotification = self.saveNotification
                         self.saveNotification = nil
