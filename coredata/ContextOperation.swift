@@ -54,7 +54,7 @@ public final class ContextOperation<Subject> : Operation, ProgressReporting {
         super.init()
         
         self.progress.cancellationHandler = { [weak self] in
-            self?.cancel()
+            self?.handleProgressCancellation()
         }
     }
 
@@ -164,6 +164,23 @@ public final class ContextOperation<Subject> : Operation, ProgressReporting {
         }
     }
 
+    public override func cancel() {
+        super.cancel()
+        handleOperationCancellation()
+    }
+    
+    // When the progress is cancelled, make sure the operation is too.
+    private func handleProgressCancellation() {
+        guard isCancelled == false else { return }
+        cancel()
+    }
+    
+    // When the operation is cancelled, make sure the progress is too.
+    private func handleOperationCancellation() {
+        guard progress.isCancelled == false else { return }
+        progress.cancel()
+    }
+    
     @objc private func operationContextSaved(_ notification: Notification) {
         guard workCompleted else {
             // The closure must have called save(), so we merge those changes right away.
