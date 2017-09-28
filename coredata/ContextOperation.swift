@@ -26,6 +26,16 @@ import CoreData
 
 public final class ContextOperation<Subject> : Operation, ProgressReporting {
 
+    /// tracks timing events captured during the lifecycle of the operation. Timing values aren't
+    /// fully available until after the operation has finished, so the best place to query them
+    /// is from the `completionBlock`.
+    public var timeline: Timeline {
+        // Avoid returning garbage while timestamps are being updated.
+        return isExecuting
+            ? Timeline(createdAt: createdAt)
+            : Timeline(createdAt: createdAt, startedAt: startedAt, workCompletedAt: workCompletedAt, finishedAt: finishedAt)
+    }
+    
     public let callerInfo: CallerInfo
     public var sourceContext: NSManagedObjectContext?
     
@@ -40,6 +50,11 @@ public final class ContextOperation<Subject> : Operation, ProgressReporting {
     private let resolve: (_ value: Subject) -> Void
     private let reject: (_ error: Error) -> Void
 
+    private let createdAt: CFAbsoluteTime
+    private var startedAt: CFAbsoluteTime?
+    private var workCompletedAt: CFAbsoluteTime?
+    private var finishedAt: CFAbsoluteTime?
+    
     public init(mergePolicy: NSMergePolicy = NSMergePolicy.error, file: StaticString = #file, function: StaticString = #function, line: UInt = #line, work: @escaping (_ context: NSManagedObjectContext) throws -> Subject) {
         let (eventual, resolve, reject) = Eventual<Subject>.make()
         self.eventual = eventual
@@ -50,6 +65,8 @@ public final class ContextOperation<Subject> : Operation, ProgressReporting {
         self.callerInfo = CallerInfo(file, function, line)
         self.progress =  Progress.discreteProgress(totalUnitCount: 10)
         self.mergePolicy = mergePolicy
+        
+        self.createdAt = CFAbsoluteTimeGetCurrent()
         
         super.init()
         
@@ -90,6 +107,7 @@ public final class ContextOperation<Subject> : Operation, ProgressReporting {
     
     public override func main() {
         autoreleasepool {
+            startedAt = CFAbsoluteTimeGetCurrent()
 
             guard let operationWork = work else {
                 preconditionFailure("ContextOperation block unexpectedly nil at start of operation")
@@ -132,6 +150,7 @@ public final class ContextOperation<Subject> : Operation, ProgressReporting {
                     let subject = try operationWork(operationContext)
                     operationProgress.resignCurrent()
                     self.workCompleted = true
+                    self.workCompletedAt = CFAbsoluteTimeGetCurrent()
                     
                     guard self.isCancelled == false else {
                         operationContext.rollback()
@@ -176,6 +195,7 @@ public final class ContextOperation<Subject> : Operation, ProgressReporting {
                 }
             }
             
+            finishedAt = CFAbsoluteTimeGetCurrent()
         }
     }
 
@@ -252,4 +272,70 @@ private extension NSManagedObjectContext {
         mergeChanges(fromContextDidSave: notification)
         processPendingChanges()
     }
+}
+
+extension ContextOperation {
+    
+    public struct Timeline: CustomStringConvertible, CustomDebugStringConvertible {
+        public let createdAt: CFAbsoluteTime?
+        public let startedAt: CFAbsoluteTime?
+        public let workCompletedAt: CFAbsoluteTime?
+        public let finishedAt: CFAbsoluteTime?
+        
+        public private(set) var latency: TimeInterval? = nil
+        public private(set) var workDuration: TimeInterval? = nil
+        public private(set) var mainDuration: TimeInterval? = nil
+        public private(set) var totalDuration: TimeInterval? = nil
+        
+        public init(createdAt: CFAbsoluteTime? = nil, startedAt: CFAbsoluteTime? = nil, workCompletedAt: CFAbsoluteTime? = nil, finishedAt: CFAbsoluteTime? = nil) {
+            self.createdAt = createdAt
+            self.startedAt = startedAt
+            self.workCompletedAt = workCompletedAt
+            self.finishedAt = finishedAt
+            
+            guard let createdAt = createdAt, let startedAt = startedAt else { return }
+            
+            latency = startedAt - createdAt
+            
+            if let workCompletedAt = workCompletedAt {
+                workDuration = workCompletedAt - startedAt
+            }
+
+            guard let finishedAt = finishedAt else { return }
+            
+            mainDuration = finishedAt - startedAt
+            totalDuration = finishedAt - createdAt
+        }
+        
+        public var description: String {
+            let timings = [
+                "latency: " + format(timeish: latency),
+                "workDuration: " + format(timeish: workDuration),
+                "mainDuration: " + format(timeish: mainDuration),
+                "totalDuration: " + format(timeish: totalDuration)
+            ]
+            
+            return "ContextOperation.Timeline(" + timings.joined(separator: ", ") + ")"
+        }
+        
+        public var debugDescription: String {
+            let timings = [
+                "createdAt: " + format(timeish: createdAt),
+                "startedAt: " + format(timeish: startedAt),
+                "workCompletedAt: " + format(timeish: workCompletedAt),
+                "finishedAt: " + format(timeish: finishedAt),
+                "latency: " + format(timeish: latency),
+                "workDuration: " + format(timeish: workDuration),
+                "mainDuration: " + format(timeish: mainDuration),
+                "totalDuration: " + format(timeish: totalDuration)
+            ]
+            
+            return "ContextOperation.Timeline(" + timings.joined(separator: ", ") + ")"
+        }
+
+        private func format(timeish: Double?) -> String {
+            return timeish.map { String(format: "%.3f", $0) } ?? "--"
+        }
+    }
+
 }
