@@ -78,23 +78,39 @@ public struct PayloadMap<T: AttributeInfo>: DictionaryApplication {
     mutating
     public func addDefaultMappings(forAttributes attributes: [T]) {
         attributes.forEach { attribute in
+            guard identityKey != attribute.name else { return }
             addMapping(where: attribute.name, updates: attribute)
         }
     }
     
     mutating
     public func addMapping(where keyPath: String, transformedBy transformers: [ValueTransformer] = [], updates attribute: T) {
+        guard identityKey != keyPath else {
+            assertionFailure("added mapping conflicts with identity mapping")
+            return
+        }
+
         let scalarMap = AttributeMap<T>(transformers: transformersPrefix + transformers, attribute: attribute)
         addMapping(forPathComponents: keyPath.characters.split(separator: ".").map({String($0)}), appliedBy: scalarMap)
     }
 
     mutating
     public func addMapping(for attribute: T, transformedBy transformers: [ValueTransformer] = []) {
+        guard identityKey != attribute.name else {
+            assertionFailure("added mapping conflicts with identity mapping")
+            return
+        }
+        
         addMapping(where: attribute.name, transformedBy: transformers, updates: attribute)
     }
 
     mutating
     public func addMapping(where keyPath: String, transformedBy transformers: [ValueTransformer] = [], performs work: @escaping (_ receiver: T.ManagedObject, _ value: Any?) throws -> Void) {
+        guard identityKey != keyPath else {
+            assertionFailure("added mapping conflicts with identity mapping")
+            return
+        }
+        
         let customMap = CustomMap<T>(transformers: transformersPrefix + transformers) { (receiver, value) in
             try work(receiver, value)
         }
@@ -118,6 +134,11 @@ public struct PayloadMap<T: AttributeInfo>: DictionaryApplication {
     
     mutating
     public func addMapping(where keyPath: String, isAppliedBy otherMap: PayloadMap<T>) {
+        guard identityKey != keyPath else {
+            assertionFailure("added mapping conflicts with identity mapping")
+            return
+        }
+        
         addMapping(where: keyPath.characters.split(separator: ".").map({String($0)}), isAppliedBy: otherMap)
     }
 
