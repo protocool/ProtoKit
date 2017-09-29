@@ -24,7 +24,7 @@
 import Foundation
 import CoreData
 
-public protocol AttributeInfo {
+public protocol AttributeInfo: Equatable {
     associatedtype ManagedObject: NSManagedObject
     static var all: [Self] { get }
     var name: String { get }
@@ -32,8 +32,21 @@ public protocol AttributeInfo {
     var isOptional: Bool { get }
 }
 
-public protocol RelationshipInfo {
+extension AttributeInfo {
+    public static func ==(lhs: Self, rhs: Self) -> Bool {
+        return lhs.name == rhs.name
+    }
+}
+
+public protocol RelationshipInfo: Equatable {
     associatedtype ManagedObject: NSManagedObject
     static var all: [Self] { get }
     var name: String { get }
 }
+
+extension RelationshipInfo {
+    public static func ==(lhs: Self, rhs: Self) -> Bool {
+        return lhs.name == rhs.name
+    }
+}
+
