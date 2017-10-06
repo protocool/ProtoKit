@@ -78,7 +78,7 @@ import CoreData
    the `managed` subscript at the end of the chain where you want to actually perform
    the inequality check.
  */
-public protocol ManagedSubscript: class where Self: NSManagedObject {}
+public protocol ManagedSubscript where Self: NSManagedObject {}
 
 public extension ManagedSubscript {
     subscript<T>(managed path: ReferenceWritableKeyPath<Self, T>) -> T where T: Equatable {
