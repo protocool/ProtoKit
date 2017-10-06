@@ -91,7 +91,7 @@ public struct PayloadMap<T: AttributeInfo>: DictionaryApplication {
         }
 
         let scalarMap = AttributeMap<T>(transformers: transformersPrefix + transformers, attribute: attribute)
-        addMapping(forPathComponents: keyPath.characters.split(separator: ".").map({String($0)}), appliedBy: scalarMap)
+        addMapping(forPathComponents: keyPath.split(separator: ".").map({String($0)}), appliedBy: scalarMap)
     }
 
     mutating
@@ -114,7 +114,7 @@ public struct PayloadMap<T: AttributeInfo>: DictionaryApplication {
         let customMap = CustomMap<T>(transformers: transformersPrefix + transformers) { (receiver, value) in
             try work(receiver, value)
         }
-        addMapping(forPathComponents: keyPath.characters.split(separator: ".").map({String($0)}), appliedBy: customMap)
+        addMapping(forPathComponents: keyPath.split(separator: ".").map({String($0)}), appliedBy: customMap)
     }
 
     mutating
@@ -139,7 +139,7 @@ public struct PayloadMap<T: AttributeInfo>: DictionaryApplication {
             return
         }
         
-        addMapping(where: keyPath.characters.split(separator: ".").map({String($0)}), isAppliedBy: otherMap)
+        addMapping(where: keyPath.split(separator: ".").map({String($0)}), isAppliedBy: otherMap)
     }
 
     mutating
