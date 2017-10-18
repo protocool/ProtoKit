@@ -47,6 +47,7 @@ public extension DispatchQueue {
 
 public extension Array {
     
+    @discardableResult
     public mutating func remove(at indexes: IndexSet) -> [Element] {
         var removed: [Element] = []
         removed.reserveCapacity(indexes.count)
@@ -56,6 +57,15 @@ public extension Array {
         }
         
         return removed.reversed()
+    }
+    
+    public func indexes(where predicate: (Element) throws -> Bool) rethrows -> IndexSet {
+        var result = IndexSet()
+        for (index, element) in enumerated() where try predicate(element) == true {
+            result.insert(index)
+        }
+        
+        return result
     }
     
     public subscript (indexes: IndexSet) -> [Element] {
