@@ -42,9 +42,15 @@ public enum AttributeMapError: Error {
     case mappingFailed(name: String)
 }
 
+public protocol AttributeValueTransformation {
+    func transformedObject(from value: Any?) throws -> NSObject?
+}
+
 private let transformersPrefix: [ValueTransformer] = [ValueTransformer(forName: NSValueTransformerName.payloadNullToNil)!]
 
-public struct PayloadMap<T: AttributeInfo>: DictionaryApplication {
+public struct PayloadMap<T: AttributeInfo> {
+    public typealias ManagedObject = T.ManagedObject
+    public typealias PreparationBlock = (inout PayloadMap) -> Void
 
     private var scalarMaps: Dictionary<String, ScalarApplication> = [:]
     private var nestedMaps: Dictionary<String, PayloadMap> = [:]
@@ -52,27 +58,30 @@ public struct PayloadMap<T: AttributeInfo>: DictionaryApplication {
     public let identityKey: String?
     public let identityMap: AttributeMap<T>?
     
-    public init(identityKey: String, transformers: [ValueTransformer] = [], attribute: T) {
-        let attributeMap = AttributeMap<T>(transformers: transformersPrefix + transformers, attribute: attribute)
+    public init(identityKey: String, transformers: [ValueTransformer] = [], attribute: T, preparedBy preparation: PreparationBlock? = nil) {
+        let attributeMap = AttributeMap<T>(transformers: transformers, attribute: attribute)
         
         self.identityKey = identityKey
         self.identityMap = attributeMap
         
         addMapping(forPathComponents: [identityKey], appliedBy: attributeMap)
+        preparation?(&self)
     }
 
-    public init(identity attribute: T, transformers: [ValueTransformer] = []) {
-        let attributeMap = AttributeMap<T>(transformers: transformersPrefix + transformers, attribute: attribute)
+    public init(identity attribute: T, transformers: [ValueTransformer] = [], preparedBy preparation: PreparationBlock? = nil) {
+        let attributeMap = AttributeMap<T>(transformers: transformers, attribute: attribute)
         
         self.identityKey = attribute.name
         self.identityMap = attributeMap
         
         addMapping(forPathComponents: [attribute.name], appliedBy: attributeMap)
+        preparation?(&self)
     }
 
-    public init() {
+    public init(preparedBy preparation: PreparationBlock? = nil) {
         identityKey = nil
         identityMap = nil
+        preparation?(&self)
     }
     
     mutating
@@ -90,7 +99,7 @@ public struct PayloadMap<T: AttributeInfo>: DictionaryApplication {
             return
         }
 
-        let scalarMap = AttributeMap<T>(transformers: transformersPrefix + transformers, attribute: attribute)
+        let scalarMap = AttributeMap<T>(transformers: transformers, attribute: attribute)
         addMapping(forPathComponents: keyPath.split(separator: ".").map({String($0)}), appliedBy: scalarMap)
     }
 
@@ -111,7 +120,7 @@ public struct PayloadMap<T: AttributeInfo>: DictionaryApplication {
             return
         }
         
-        let customMap = CustomMap<T>(transformers: transformersPrefix + transformers) { (receiver, value) in
+        let customMap = CustomMap<T>(transformers: transformers) { (receiver, value) in
             try work(receiver, value)
         }
         addMapping(forPathComponents: keyPath.split(separator: ".").map({String($0)}), appliedBy: customMap)
@@ -157,26 +166,42 @@ public struct PayloadMap<T: AttributeInfo>: DictionaryApplication {
         }
     }
 
-    public func applyValuesForKeys(from dictionary: Dictionary<String, Any>, to managedObject: NSManagedObject) throws -> Void {
+    public func applyValuesForKeys(from dictionary: Dictionary<String, Any>, to managedObject: ManagedObject) throws -> Void {
         for (key, value) in dictionary {
-            do {
-                if let subDict = value as? Dictionary<String, Any>, let mapper = nestedMaps[key] {
-                    try mapper.applyValuesForKeys(from: subDict, to: managedObject)
-                }
-                else if let mapper = scalarMaps[key] {
-                    try mapper.applyValue(value, to: managedObject)
-                }
+            try apply(value, forKey: key, to: managedObject)
+        }
+    }
+
+    public func applyValues(forKeys keys: [String], from dictionary: Dictionary<String, Any>, to managedObject: ManagedObject) throws -> Void {
+        for key in keys {
+            guard let value = dictionary[key] else { continue }
+            try apply(value, forKey: key, to: managedObject)
+        }
+    }
+
+    public func applyValue(forKey key: String, from dictionary: Dictionary<String, Any>, to managedObject: ManagedObject) throws -> Void {
+        guard let value = dictionary[key] else { return }
+        try apply(value, forKey: key, to: managedObject)
+    }
+
+    private func apply(_ value: Any, forKey key:String, to managedObject: ManagedObject) throws -> Void {
+        do {
+            if let subDict = value as? Dictionary<String, Any>, let mapper = nestedMaps[key] {
+                try mapper.applyValuesForKeys(from: subDict, to: managedObject)
             }
-            catch AttributeMapError.mappingFailed(let attributeName) {
-                throw PayloadMapError.attributeMappingFailed(keyPath: key, name: attributeName, value: value)
+            else if let mapper = scalarMaps[key] {
+                try mapper.applyValue(value, to: managedObject)
             }
-            catch let error as PayloadMapError {
-                throw error.rewrite(withKeyPathPrefix: key)
-            }
-            catch {
-                assertionFailure("error raised by custom mapping block")
-                throw PayloadMapError.customMappingFailed(keyPath: key, value: value, underlyingError: error)
-            }
+        }
+        catch AttributeMapError.mappingFailed(let attributeName) {
+            throw PayloadMapError.attributeMappingFailed(keyPath: key, name: attributeName, value: value)
+        }
+        catch let error as PayloadMapError {
+            throw error.rewrite(withKeyPathPrefix: key)
+        }
+        catch {
+            assertionFailure("error raised by custom mapping block")
+            throw PayloadMapError.customMappingFailed(keyPath: key, value: value, underlyingError: error)
         }
     }
 
@@ -187,7 +212,7 @@ public struct CustomMap<T: AttributeInfo>: ScalarApplication {
     public let work: (_ receiver: T.ManagedObject, _ value: Any?) throws -> Void
     
     public init(transformers: [ValueTransformer], work: @escaping (_ receiver: T.ManagedObject, _ value: Any?) throws -> Void) {
-        self.transformers = transformers
+        self.transformers = transformersPrefix + transformers
         self.work = work
     }
     
@@ -197,12 +222,12 @@ public struct CustomMap<T: AttributeInfo>: ScalarApplication {
     }
 }
 
-public struct AttributeMap<T: AttributeInfo>: ScalarApplication, ScalarObjectTransformation {
+public struct AttributeMap<T: AttributeInfo>: ScalarApplication, AttributeValueTransformation {
     public let transformers: [ValueTransformer]
     public let attribute: T
 
     public init(transformers: [ValueTransformer], attribute: T) {
-        self.transformers = transformers
+        self.transformers = transformersPrefix + transformers
         self.attribute = attribute
     }
 
@@ -364,14 +389,7 @@ public struct AttributeMap<T: AttributeInfo>: ScalarApplication, ScalarObjectTra
     }
 }
 
-internal protocol DictionaryApplication {
-    func applyValuesForKeys(from dictionary: Dictionary<String, Any>, to managedObject: NSManagedObject) throws -> Void
-}
-
 internal protocol ScalarApplication {
     func applyValue(_ value: Any?, to managedObject: NSManagedObject) throws -> Void
 }
 
-internal protocol ScalarObjectTransformation {
-    func transformedObject(from value: Any?) throws -> NSObject?
-}

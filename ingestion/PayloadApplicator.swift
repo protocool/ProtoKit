@@ -24,20 +24,16 @@
 import Foundation
 import CoreData
 
-public final class PayloadApplicator: NSObject {
-    private let payloadMap: DictionaryApplication
+/// `PayloadApplicator` is a type erased wrapper around `PayloadMap<T>`, used by
+/// a `PayloadIngester` for applying a given payload's values to a managed object.
+public final class PayloadApplicator<ManagedObject: NSManagedObject> {
+    private let apply: (Dictionary<String, Any>, ManagedObject) throws -> Void
     
-    public init<T>(payloadMap: PayloadMap<T>) {
-        self.payloadMap = payloadMap
+    public init<T>(payloadMap: PayloadMap<T>) where T.ManagedObject == ManagedObject {
+        apply = payloadMap.applyValuesForKeys(from:to:)
     }
     
-    public func applyValuesForKeys(from dictionary: Dictionary<String, Any>, to managedObject: NSManagedObject) throws {
-        try payloadMap.applyValuesForKeys(from: dictionary, to: managedObject)
-    }
-}
-
-public extension NSManagedObject {
-    public func setValuesForKeys(with dictionary: Dictionary<String, Any>, using applicator: PayloadApplicator) throws -> Void {
-        try applicator.applyValuesForKeys(from: dictionary, to: self)
+    public func applyValuesForKeys(from dictionary: Dictionary<String, Any>, to managedObject: ManagedObject) throws {
+        try apply(dictionary, managedObject)
     }
 }

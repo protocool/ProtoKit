@@ -30,14 +30,15 @@ public struct PayloadIngesterResult<ManagedObject: NSManagedObject> {
 }
 
 public class PayloadIngester<ManagedObject: NSManagedObject> {
+    public typealias PayloadApplication = (ManagedObject, Dictionary<String, Any>, PayloadApplicator<ManagedObject>) throws -> Void
     
     public let name: String
     public let identityKey: String
     public let identityTransformers: [ValueTransformer]
     public let identityAttributeName: String
+    public let identityTransformation: AttributeValueTransformation
     
-    private let identityTransformation: ScalarObjectTransformation
-    private let mapper: PayloadApplicator
+    private let applicator: PayloadApplicator<ManagedObject>
     
     public init<T>(payloadMap: PayloadMap<T>, name: String? = nil) where T.ManagedObject == ManagedObject {
         guard let identityKey = payloadMap.identityKey, let identityMap = payloadMap.identityMap else {
@@ -50,50 +51,45 @@ public class PayloadIngester<ManagedObject: NSManagedObject> {
         self.identityTransformation = identityMap
         
         self.name = name.map({"\($0) (\(ManagedObject.self))"}) ?? "Unnamed PayloadIngester (\(ManagedObject.self))"
-        self.mapper = PayloadApplicator(payloadMap: payloadMap)
+        self.applicator = PayloadApplicator(payloadMap: payloadMap)
+    }
+    
+    public convenience init<T>(identityKey: String, transformers: [ValueTransformer] = [], attribute: T, name: String? = nil, withMapping preparation: (inout PayloadMap<T>) -> Void) where T.ManagedObject == ManagedObject {
+        var attributeMap = PayloadMap(identityKey: identityKey, transformers: transformers, attribute: attribute)
+        preparation(&attributeMap)
+        
+        self.init(payloadMap: attributeMap, name: name)
     }
 
     @discardableResult
-    public func upsert(with dictionary: Dictionary<String, Any>, scope: Dictionary<String, Any>? = nil, prefetch keyPaths: [String]? = nil, context: NSManagedObjectContext) throws -> ManagedObject {
-        guard let updated = try upsert(with: [dictionary], scope: scope, prefetch: keyPaths, context: context).first else {
+    public func upsert(with dictionary: Dictionary<String, Any>, scope: Dictionary<String, Any>? = nil, prefetch keyPaths: [String]? = nil, context: NSManagedObjectContext, appliedBy application: PayloadApplication? = nil) throws -> ManagedObject {
+        guard let updated = try upsert(with: [dictionary], scope: scope, prefetch: keyPaths, context: context, appliedBy: application).first else {
             preconditionFailure("unexpected nil result of upsert with known dictionary")
         }
         return updated
     }
     
     @discardableResult
-    public func upsert(with dictionaries: [Dictionary<String, Any>], scope: Dictionary<String, Any>? = nil, prefetch keyPaths: [String]? = nil, ordered: Bool = false, context: NSManagedObjectContext) throws -> [ManagedObject] {
-        let result = try update(with: dictionaries, scope: scope, prefetch: keyPaths, context: context)
-        
-        guard result.remainder.isEmpty == false else {
-            return ordered ? try reorder(result.updated, accordingTo: dictionaries) : result.updated
-        }
-        
-        let entity = ManagedObject.entity()
-        var upserted = result.updated
-        
-        for dictionary in result.remainder {
-            let inserted = ManagedObject(entity: entity, insertInto: context)
-            
-            do {
-                if let scope = scope {
-                    inserted.setValuesForKeys(scope)
-                }
-                try inserted.setValuesForKeys(with: dictionary, using: mapper)
-            }
-            catch {
-                throw IngestionError.payloadMappingFailed(ingesterName: name, underlyingError: error)
-            }
-            
-            upserted.append(inserted)
-        }
+    public func upsert(with dictionaries: [Dictionary<String, Any>], scope: Dictionary<String, Any>? = nil, prefetch keyPaths: [String]? = nil, ordered: Bool = false, context: NSManagedObjectContext, appliedBy application: PayloadApplication? = nil) throws -> [ManagedObject] {
+        let updateResult = try update(with: dictionaries, scope: scope, prefetch: keyPaths, context: context, appliedBy: application)
+        let inserted = try insert(with: updateResult.remainder, scope: scope, context: context, appliedBy: application)
+        let upserted = updateResult.updated + inserted
         
         return ordered ? try reorder(upserted, accordingTo: dictionaries) : upserted
     }
-    
+
     @discardableResult
-    public func update(with dictionaries: [Dictionary<String, Any>], scope: Dictionary<String, Any>? = nil, prefetch keyPaths: [String]? = nil, context: NSManagedObjectContext) throws -> PayloadIngesterResult<ManagedObject> {
-        var byIdentity = try dictionaries.indexedBy { dictionary -> NSObject in
+    public func upsertExisting(_ existing: [ManagedObject], with dictionaries: [Dictionary<String, Any>], ordered: Bool = false, context: NSManagedObjectContext, appliedBy application: PayloadApplication? = nil) throws -> [ManagedObject] {
+        let updateResult = try updateExisting(existing, with: dictionaries, context: context, appliedBy: application)
+        let inserted = try insert(with: updateResult.remainder, scope: nil, context: context, appliedBy: application)
+        let upserted = updateResult.updated + inserted
+        
+        return ordered ? try reorder(upserted, accordingTo: dictionaries) : upserted
+    }
+
+    @discardableResult
+    public func update(with dictionaries: [Dictionary<String, Any>], scope: Dictionary<String, Any>? = nil, prefetch keyPaths: [String]? = nil, context: NSManagedObjectContext, appliedBy application: PayloadApplication? = nil) throws -> PayloadIngesterResult<ManagedObject> {
+        let byIdentity = try dictionaries.indexedBy { dictionary -> NSObject in
             guard let identity: NSObject = (try? identityTransformation.transformedObject(from: dictionary[identityKey])) ?? nil else {
                 throw IngestionError.nullPayloadIdentityValue(ingesterName: name, key: identityKey)
             }
@@ -110,21 +106,76 @@ public class PayloadIngester<ManagedObject: NSManagedObject> {
         request.relationshipKeyPathsForPrefetching = keyPaths
         
         let existing = try context.fetch(request)
-        for case let object as NSManagedObject in existing {
+        
+        return try update(existing: existing, using: byIdentity, context: context, appliedBy: application)
+    }
+
+    @discardableResult
+    public func updateExisting(_ existing: [ManagedObject], with dictionaries: [Dictionary<String, Any>], context: NSManagedObjectContext, appliedBy application: PayloadApplication? = nil) throws -> PayloadIngesterResult<ManagedObject> {
+        let byIdentity = try dictionaries.indexedBy { dictionary -> NSObject in
+            guard let identity: NSObject = (try? identityTransformation.transformedObject(from: dictionary[identityKey])) ?? nil else {
+                throw IngestionError.nullPayloadIdentityValue(ingesterName: name, key: identityKey)
+            }
+            return identity
+        }
+
+        return try update(existing: existing, using: byIdentity, context: context, appliedBy: application)
+    }
+
+    private func update(existing: [ManagedObject], using lookup: [NSObject: [String: Any]], context: NSManagedObjectContext, appliedBy application: PayloadApplication? = nil) throws -> PayloadIngesterResult<ManagedObject> {
+        var lookup = lookup
+        
+        for object in existing {
             let identity = object.value(forKey: identityAttributeName) as! NSObject
-            let dictionary = byIdentity.removeValue(forKey: identity)!
+            let dictionary = lookup.removeValue(forKey: identity)!
             
             do {
-                try object.setValuesForKeys(with: dictionary, using: mapper)
+                if let application = application {
+                    try application(object, dictionary, applicator)
+                }
+                else {
+                    try applicator.applyValuesForKeys(from: dictionary, to: object)
+                }
             }
             catch {
                 throw IngestionError.payloadMappingFailed(ingesterName: name, underlyingError: error)
             }
         }
         
-        return PayloadIngesterResult(updated: existing, remainder: Array(byIdentity.values))
+        return PayloadIngesterResult(updated: existing, remainder: Array(lookup.values))
     }
-    
+
+    private func insert(with dictionaries: [Dictionary<String, Any>], scope: Dictionary<String, Any>? = nil, context: NSManagedObjectContext, appliedBy application: PayloadApplication? = nil) throws -> [ManagedObject] {
+        let entity = ManagedObject.entity()
+        
+        var result: [ManagedObject] = []
+        result.reserveCapacity(dictionaries.count)
+        
+        for dictionary in dictionaries {
+            let inserted = ManagedObject(entity: entity, insertInto: context)
+            
+            do {
+                if let scope = scope {
+                    inserted.setValuesForKeys(scope)
+                }
+                
+                if let application = application {
+                    try application(inserted, dictionary, applicator)
+                }
+                else {
+                    try applicator.applyValuesForKeys(from: dictionary, to: inserted)
+                }
+            }
+            catch {
+                throw IngestionError.payloadMappingFailed(ingesterName: name, underlyingError: error)
+            }
+            
+            result.append(inserted)
+        }
+        
+        return result
+    }
+
     public func reorder(_ objects: [ManagedObject], accordingTo dictionaries: [Dictionary<String, Any>]) throws -> [ManagedObject] {
         let byIdentity = try objects.indexedBy { managedObject -> NSObject in
             guard let identity = managedObject.value(forKey: identityAttributeName) as? NSObject else {
