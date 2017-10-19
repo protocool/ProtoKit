@@ -102,6 +102,7 @@ public class PayloadIngester<ManagedObject: NSManagedObject> {
         
         let request = NSFetchRequest<ManagedObject>()
         request.entity = ManagedObject.entity()
+        request.returnsObjectsAsFaults = false
         request.predicate = compoundScope.map({NSCompoundPredicate(andPredicateWithSubpredicates: [$0, identityPredicate])}) ?? identityPredicate
         request.relationshipKeyPathsForPrefetching = keyPaths
         
