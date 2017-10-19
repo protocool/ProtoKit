@@ -59,6 +59,17 @@ public extension Array {
         return removed.reversed()
     }
     
+    @discardableResult
+    public mutating func remove(where predicate: (Element) throws -> Bool) rethrows -> [Element] {
+        var removed: [Element] = []
+        
+        for index in stride(from: endIndex - 1, through: startIndex, by: -1) where try predicate(self[index]) == true {
+            removed.append(remove(at: index))
+        }
+
+        return removed.reversed()
+    }
+    
     public func indexes(where predicate: (Element) throws -> Bool) rethrows -> IndexSet {
         var result = IndexSet()
         for (index, element) in enumerated() where try predicate(element) == true {
