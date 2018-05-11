@@ -125,11 +125,18 @@ public class PayloadIngester<ManagedObject: NSManagedObject> {
 
     private func update(existing: [ManagedObject], using lookup: [NSObject: [String: Any]], context: NSManagedObjectContext, appliedBy application: PayloadApplication? = nil) throws -> PayloadIngesterResult<ManagedObject> {
         var lookup = lookup
+        var updated: [ManagedObject] = []
         
+        updated.reserveCapacity(existing.count)
+
         for object in existing {
             let identity = object.value(forKey: identityAttributeName) as! NSObject
-            let dictionary = lookup.removeValue(forKey: identity)!
             
+            // Skip application and do not append to updated when we have no corresponding dictionary
+            guard let dictionary = lookup.removeValue(forKey: identity) else {
+                continue
+            }
+
             do {
                 if let application = application {
                     try application(object, dictionary, applicator)
@@ -137,13 +144,15 @@ public class PayloadIngester<ManagedObject: NSManagedObject> {
                 else {
                     try applicator.applyValuesForKeys(from: dictionary, to: object)
                 }
+                
+                updated.append(object)
             }
             catch {
                 throw IngestionError.payloadMappingFailed(ingesterName: name, underlyingError: error)
             }
         }
         
-        return PayloadIngesterResult(updated: existing, remainder: Array(lookup.values))
+        return PayloadIngesterResult(updated: updated, remainder: Array(lookup.values))
     }
 
     private func insert(with dictionaries: [Dictionary<String, Any>], scope: Dictionary<String, Any>? = nil, context: NSManagedObjectContext, appliedBy application: PayloadApplication? = nil) throws -> [ManagedObject] {
