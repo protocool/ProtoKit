@@ -89,6 +89,9 @@ public extension ManagedSubscript where Self: NSManagedObject {
             }
         }
     }
+    
+    #if swift(>=4.2)
+    #else
     subscript<T>(managed path: ReferenceWritableKeyPath<Self, T?>) ->T? where T: Equatable {
         get { return self[keyPath: path] }
         set {
@@ -105,5 +108,5 @@ public extension ManagedSubscript where Self: NSManagedObject {
             }
         }
     }
+    #endif
 }
-
