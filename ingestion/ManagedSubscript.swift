@@ -90,7 +90,18 @@ public extension ManagedSubscript where Self: NSManagedObject {
         }
     }
     
-    #if swift(>=4.2)
+    // In Xcode 9.4 (Swift 4.1), KeyPaths do not inference IUO<T> to the
+    // appropriate optional or non-optional type, so we need a generic
+    // variant that uses the soft-deprected IUO<T>.
+    //
+    // Xcode 10-beta (Swift 4.2) corrects the KeyPath problem, while also
+    // hard-deprecating IUO<T>, but it does so even when the compiler version
+    // is set to "Swift 4", rendering a test of swift(>=4.2) useless.
+    //
+    // For some reason though, swift(>=4.1.9) is true in Xcode 10-beta for both
+    // the "Swift 4" and "Swift 4.2" compiler version settings. It's also higher
+    // than Xcode 9's most recent Swift version, so that's what we test against.
+    #if swift(>=4.1.9)
     #else
     subscript<T>(managed path: ReferenceWritableKeyPath<Self, T?>) ->T? where T: Equatable {
         get { return self[keyPath: path] }
