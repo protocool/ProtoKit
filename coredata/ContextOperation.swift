@@ -313,7 +313,7 @@ public struct ContextOperationTimeline: CustomStringConvertible, CustomDebugStri
             "totalDuration: " + format(timeish: totalDuration)
         ]
         
-        return "ContextOperation.Timeline(" + timings.joined(separator: ", ") + ")"
+        return "ContextOperationTimeline(" + timings.joined(separator: ", ") + ")"
     }
     
     public var debugDescription: String {
@@ -328,7 +328,7 @@ public struct ContextOperationTimeline: CustomStringConvertible, CustomDebugStri
             "totalDuration: " + format(timeish: totalDuration)
         ]
         
-        return "ContextOperation.Timeline(" + timings.joined(separator: ", ") + ")"
+        return "ContextOperationTimeline(" + timings.joined(separator: ", ") + ")"
     }
     
     private func format(timeish: Double?) -> String {
