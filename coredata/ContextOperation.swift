@@ -29,11 +29,11 @@ public final class ContextOperation<Subject> : Operation, ProgressReporting {
     /// tracks timing events captured during the lifecycle of the operation. Timing values aren't
     /// fully available until after the operation has finished, so the best place to query them
     /// is from the `completionBlock`.
-    public var timeline: Timeline {
+    public var timeline: ContextOperationTimeline {
         // Avoid returning garbage while timestamps are being updated.
         return isExecuting
-            ? Timeline(createdAt: createdAt)
-            : Timeline(createdAt: createdAt, startedAt: startedAt, workCompletedAt: workCompletedAt, finishedAt: finishedAt)
+            ? ContextOperationTimeline(createdAt: createdAt)
+            : ContextOperationTimeline(createdAt: createdAt, startedAt: startedAt, workCompletedAt: workCompletedAt, finishedAt: finishedAt)
     }
     
     public let callerInfo: CallerInfo
@@ -274,68 +274,69 @@ private extension NSManagedObjectContext {
     }
 }
 
-extension ContextOperation {
+public struct ContextOperationTimeline: CustomStringConvertible, CustomDebugStringConvertible {
+    public let createdAt: CFAbsoluteTime?
+    public let startedAt: CFAbsoluteTime?
+    public let workCompletedAt: CFAbsoluteTime?
+    public let finishedAt: CFAbsoluteTime?
     
-    public struct Timeline: CustomStringConvertible, CustomDebugStringConvertible {
-        public let createdAt: CFAbsoluteTime?
-        public let startedAt: CFAbsoluteTime?
-        public let workCompletedAt: CFAbsoluteTime?
-        public let finishedAt: CFAbsoluteTime?
+    public private(set) var latency: TimeInterval? = nil
+    public private(set) var workDuration: TimeInterval? = nil
+    public private(set) var mainDuration: TimeInterval? = nil
+    public private(set) var totalDuration: TimeInterval? = nil
+    
+    public init(createdAt: CFAbsoluteTime? = nil, startedAt: CFAbsoluteTime? = nil, workCompletedAt: CFAbsoluteTime? = nil, finishedAt: CFAbsoluteTime? = nil) {
+        self.createdAt = createdAt
+        self.startedAt = startedAt
+        self.workCompletedAt = workCompletedAt
+        self.finishedAt = finishedAt
         
-        public private(set) var latency: TimeInterval? = nil
-        public private(set) var workDuration: TimeInterval? = nil
-        public private(set) var mainDuration: TimeInterval? = nil
-        public private(set) var totalDuration: TimeInterval? = nil
+        guard let createdAt = createdAt, let startedAt = startedAt else { return }
         
-        public init(createdAt: CFAbsoluteTime? = nil, startedAt: CFAbsoluteTime? = nil, workCompletedAt: CFAbsoluteTime? = nil, finishedAt: CFAbsoluteTime? = nil) {
-            self.createdAt = createdAt
-            self.startedAt = startedAt
-            self.workCompletedAt = workCompletedAt
-            self.finishedAt = finishedAt
-            
-            guard let createdAt = createdAt, let startedAt = startedAt else { return }
-            
-            latency = startedAt - createdAt
-            
-            if let workCompletedAt = workCompletedAt {
-                workDuration = workCompletedAt - startedAt
-            }
-
-            guard let finishedAt = finishedAt else { return }
-            
-            mainDuration = finishedAt - startedAt
-            totalDuration = finishedAt - createdAt
+        latency = startedAt - createdAt
+        
+        if let workCompletedAt = workCompletedAt {
+            workDuration = workCompletedAt - startedAt
         }
         
-        public var description: String {
-            let timings = [
-                "latency: " + format(timeish: latency),
-                "workDuration: " + format(timeish: workDuration),
-                "mainDuration: " + format(timeish: mainDuration),
-                "totalDuration: " + format(timeish: totalDuration)
-            ]
-            
-            return "ContextOperation.Timeline(" + timings.joined(separator: ", ") + ")"
-        }
+        guard let finishedAt = finishedAt else { return }
         
-        public var debugDescription: String {
-            let timings = [
-                "createdAt: " + format(timeish: createdAt),
-                "startedAt: " + format(timeish: startedAt),
-                "workCompletedAt: " + format(timeish: workCompletedAt),
-                "finishedAt: " + format(timeish: finishedAt),
-                "latency: " + format(timeish: latency),
-                "workDuration: " + format(timeish: workDuration),
-                "mainDuration: " + format(timeish: mainDuration),
-                "totalDuration: " + format(timeish: totalDuration)
-            ]
-            
-            return "ContextOperation.Timeline(" + timings.joined(separator: ", ") + ")"
-        }
-
-        private func format(timeish: Double?) -> String {
-            return timeish.map { String(format: "%.3f", $0) } ?? "--"
-        }
+        mainDuration = finishedAt - startedAt
+        totalDuration = finishedAt - createdAt
     }
+    
+    public var description: String {
+        let timings = [
+            "latency: " + format(timeish: latency),
+            "workDuration: " + format(timeish: workDuration),
+            "mainDuration: " + format(timeish: mainDuration),
+            "totalDuration: " + format(timeish: totalDuration)
+        ]
+        
+        return "ContextOperation.Timeline(" + timings.joined(separator: ", ") + ")"
+    }
+    
+    public var debugDescription: String {
+        let timings = [
+            "createdAt: " + format(timeish: createdAt),
+            "startedAt: " + format(timeish: startedAt),
+            "workCompletedAt: " + format(timeish: workCompletedAt),
+            "finishedAt: " + format(timeish: finishedAt),
+            "latency: " + format(timeish: latency),
+            "workDuration: " + format(timeish: workDuration),
+            "mainDuration: " + format(timeish: mainDuration),
+            "totalDuration: " + format(timeish: totalDuration)
+        ]
+        
+        return "ContextOperation.Timeline(" + timings.joined(separator: ", ") + ")"
+    }
+    
+    private func format(timeish: Double?) -> String {
+        return timeish.map { String(format: "%.3f", $0) } ?? "--"
+    }
+}
 
+extension ContextOperation {
+    @available(*, deprecated, renamed: "ContextOperationTimeline")
+    public typealias Timeline = ContextOperationTimeline
 }
