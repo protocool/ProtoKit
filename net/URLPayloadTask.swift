@@ -52,11 +52,11 @@ public class URLPayloadTask<Subject>: NSObject {
 
 public extension URLSession {
     
-    public func payloadTask<Subject>(with url: URL, completionHandler: @escaping (Data?, URLResponse?, Error?) throws -> Subject) -> URLPayloadTask<Subject> {
+    func payloadTask<Subject>(with url: URL, completionHandler: @escaping (Data?, URLResponse?, Error?) throws -> Subject) -> URLPayloadTask<Subject> {
         return payloadTask(with: URLRequest(url: url), completionHandler: completionHandler)
     }
 
-    public func payloadTask<Subject>(with request: URLRequest, completionHandler: @escaping (Data?, URLResponse?, Error?) throws -> Subject) -> URLPayloadTask<Subject> {
+    func payloadTask<Subject>(with request: URLRequest, completionHandler: @escaping (Data?, URLResponse?, Error?) throws -> Subject) -> URLPayloadTask<Subject> {
         let progress = Progress.discreteProgress(totalUnitCount: 1)
         let (eventualData, resolve, reject) = Eventual<Subject>.make()
         let dataTask = self.dataTask(with: request) { (taskData, taskResponse, taskError) -> Void in

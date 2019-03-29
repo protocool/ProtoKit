@@ -604,7 +604,7 @@ public extension DispatchQueue {
      - parameter work: A closure which returns a value.
      - returns: A new Eventual instance.
      */
-    public func eventually<Subject>(execute work: @escaping () throws -> Subject) -> Eventual<Subject> {
+    func eventually<Subject>(execute work: @escaping () throws -> Subject) -> Eventual<Subject> {
         return Eventual<Subject> { (resolve, reject) -> Void in
             async {
                 do { resolve(try work()) }
@@ -622,7 +622,7 @@ public extension DispatchQueue {
      - parameter work: A closure which returns an Eventual.
      - returns: A new Eventual instance.
      */
-    public func eventually<Subject>(execute work: @escaping () throws -> Eventual<Subject>) -> Eventual<Subject> {
+    func eventually<Subject>(execute work: @escaping () throws -> Eventual<Subject>) -> Eventual<Subject> {
         return Eventual<Subject> { (resolve, reject) -> Void in
             async {
                 do {

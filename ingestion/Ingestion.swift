@@ -55,7 +55,7 @@ public func checkedDowncast<T: Any, U : Any>(_ source: Optional<T>, file: Static
 }
 
 public extension Array where Element: ValueTransformer {
-    public func applyTransfomations(to value: Any?) -> Any? {
+    func applyTransfomations(to value: Any?) -> Any? {
         var result = value
         for transformer in self {
             result = transformer.transformedValue(result)
@@ -65,7 +65,7 @@ public extension Array where Element: ValueTransformer {
 }
 
 public extension Sequence {
-    public func indexedBy<T: Hashable>(_ keyForElement: (Iterator.Element) throws -> T?) rethrows -> Dictionary<T, Iterator.Element> {
+    func indexedBy<T: Hashable>(_ keyForElement: (Iterator.Element) throws -> T?) rethrows -> Dictionary<T, Iterator.Element> {
         var reduced = Dictionary<T, Iterator.Element>()
         for element in self {
             if let key = try keyForElement(element) {
@@ -77,7 +77,7 @@ public extension Sequence {
         return reduced
     }
     
-    public func groupedBy<T: Hashable>(_ keyForElement: (Iterator.Element) throws -> T?) rethrows -> Dictionary<T, [Iterator.Element]> {
+    func groupedBy<T: Hashable>(_ keyForElement: (Iterator.Element) throws -> T?) rethrows -> Dictionary<T, [Iterator.Element]> {
         var reduced = Dictionary<T, [Iterator.Element]>()
         for element in self {
             if let key = try keyForElement(element) {
@@ -92,7 +92,7 @@ public extension Sequence {
 
 public extension Dictionary {
     // specialized to reserve initial capacity
-    public func indexedBy<T: Hashable>(_ keyForElement: (Element) throws -> T?) rethrows -> Dictionary<T, Element> {
+    func indexedBy<T: Hashable>(_ keyForElement: (Element) throws -> T?) rethrows -> Dictionary<T, Element> {
         var reduced = Dictionary<T, Element>(minimumCapacity: count)
         for element in self {
             if let key = try keyForElement(element) {
@@ -107,7 +107,7 @@ public extension Dictionary {
 
 public extension Set {
     // specialized to reserve initial capacity
-    public func indexedBy<T: Hashable>(_ keyForElement: (Element) throws -> T?) rethrows -> Dictionary<T, Element> {
+    func indexedBy<T: Hashable>(_ keyForElement: (Element) throws -> T?) rethrows -> Dictionary<T, Element> {
         var reduced = Dictionary<T, Element>(minimumCapacity: count)
         for element in self {
             if let key = try keyForElement(element) {
@@ -122,7 +122,7 @@ public extension Set {
 
 public extension Array {
     // specialized to reserve initial capacity
-    public func indexedBy<T: Hashable>(_ keyForElement: (Element) throws -> T?) rethrows -> Dictionary<T, Element> {
+    func indexedBy<T: Hashable>(_ keyForElement: (Element) throws -> T?) rethrows -> Dictionary<T, Element> {
         var reduced = Dictionary<T, Element>(minimumCapacity: count)
         for element in self {
             if let key = try keyForElement(element) {

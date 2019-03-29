@@ -24,7 +24,7 @@
 import Foundation
 
 public extension NSValueTransformerName {
-    public static let payloadNullToNil = NSValueTransformerName(rawValue: "PayloadNullToNilTransformer")
+    static let payloadNullToNil = NSValueTransformerName(rawValue: "PayloadNullToNilTransformer")
 }
 
 @objc(PayloadNullToNilTransformer)

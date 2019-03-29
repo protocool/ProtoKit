@@ -40,7 +40,7 @@ public extension DispatchQueue {
      - parameter on: A dispatch_queue on which to execute the block. Defaults to `dispatch_get_main_queue()`.
      - parameter work: The closure to execute.
      */
-    public func asyncAfter(interval: TimeInterval, execute work: @escaping @convention(block) () -> Void) {
+    func asyncAfter(interval: TimeInterval, execute work: @escaping @convention(block) () -> Void) {
         asyncAfter(deadline: DispatchTime.now() + interval, execute: work)
     }
 }
@@ -48,7 +48,7 @@ public extension DispatchQueue {
 public extension Array {
     
     @discardableResult
-    public mutating func remove(at indexes: IndexSet) -> [Element] {
+    mutating func remove(at indexes: IndexSet) -> [Element] {
         var removed: [Element] = []
         removed.reserveCapacity(indexes.count)
         
@@ -60,7 +60,7 @@ public extension Array {
     }
     
     @discardableResult
-    public mutating func remove(where predicate: (Element) throws -> Bool) rethrows -> [Element] {
+    mutating func remove(where predicate: (Element) throws -> Bool) rethrows -> [Element] {
         var removed: [Element] = []
         
         for index in stride(from: endIndex - 1, through: startIndex, by: -1) where try predicate(self[index]) == true {
@@ -70,7 +70,7 @@ public extension Array {
         return removed.reversed()
     }
     
-    public func indexes(where predicate: (Element) throws -> Bool) rethrows -> IndexSet {
+    func indexes(where predicate: (Element) throws -> Bool) rethrows -> IndexSet {
         var result = IndexSet()
         for (index, element) in enumerated() where try predicate(element) == true {
             result.insert(index)
@@ -79,7 +79,7 @@ public extension Array {
         return result
     }
     
-    public subscript (indexes: IndexSet) -> [Element] {
+    subscript (indexes: IndexSet) -> [Element] {
         get { return indexes.map { self[$0] } }
     }
     
@@ -87,7 +87,7 @@ public extension Array {
 
 public extension MutableCollection where Self : RandomAccessCollection, Iterator.Element : NSObject {
     
-    public mutating func sort(using descriptors: [NSSortDescriptor]) {
+    mutating func sort(using descriptors: [NSSortDescriptor]) {
         self.sort {
             for descriptor in descriptors {
                 switch descriptor.compare($0, to: $1) {
@@ -104,7 +104,7 @@ public extension MutableCollection where Self : RandomAccessCollection, Iterator
 
 public extension Sequence where Iterator.Element : NSObject {
     
-    public func sorted(using descriptors: [NSSortDescriptor]) -> [Self.Iterator.Element] {
+    func sorted(using descriptors: [NSSortDescriptor]) -> [Self.Iterator.Element] {
         return sorted {
             for descriptor in descriptors {
                 switch descriptor.compare($0, to: $1) {

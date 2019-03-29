@@ -37,7 +37,7 @@ public protocol ContextOperationPerformer {
 public extension Eventual {
     
     @discardableResult
-    public func ingestedBy<U>(_ performer: ContextOperationPerformer,
+    func ingestedBy<U>(_ performer: ContextOperationPerformer,
                                 file: StaticString = #file, function: StaticString = #function, line: UInt = #line,
                                 using work: @escaping (Subject, NSManagedObjectContext) throws -> U) -> Eventual<U> {
         return then { value in
@@ -48,7 +48,7 @@ public extension Eventual {
     }
     
     @discardableResult
-    public func ingestedBy<T, U>(_ performer: ContextOperationPerformer, withInput input: T,
+    func ingestedBy<T, U>(_ performer: ContextOperationPerformer, withInput input: T,
                                    file: StaticString = #file, function: StaticString = #function, line: UInt = #line,
                                    using work: @escaping (Subject, T, NSManagedObjectContext) throws -> U) -> Eventual<U> {
         return then { value in

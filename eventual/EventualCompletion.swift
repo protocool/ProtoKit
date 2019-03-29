@@ -119,19 +119,19 @@ public final class EventualCompletion<Subject>: NSObject, ProgressReporting {
 public extension Eventual {
     
     @discardableResult
-    public func yieldingResult(trackedBy progress: Progress? = nil, toHandler resultHandler: @escaping (EventualResult<Subject>) -> Void) -> Progress {
+    func yieldingResult(trackedBy progress: Progress? = nil, toHandler resultHandler: @escaping (EventualResult<Subject>) -> Void) -> Progress {
         return EventualCompletion(with: self, trackedBy: progress, resultHandler: resultHandler)
             .progress
     }
     
     @discardableResult
-    public func yieldingCompletion(trackedBy progress: Progress? = nil, toHandler completionHandler: @escaping (Subject?, Error?) -> Void) -> Progress {
+    func yieldingCompletion(trackedBy progress: Progress? = nil, toHandler completionHandler: @escaping (Subject?, Error?) -> Void) -> Progress {
         return EventualCompletion(with: self, trackedBy: progress, completionHandler: completionHandler)
             .progress
     }
     
     @discardableResult
-    public func yieldingSuccess(trackedBy progress: Progress? = nil, toHandler successHandler: @escaping (Bool, Error?) -> Void) -> Progress {
+    func yieldingSuccess(trackedBy progress: Progress? = nil, toHandler successHandler: @escaping (Bool, Error?) -> Void) -> Progress {
         let completion = EventualCompletion(with: self, trackedBy: progress, resultHandler: {
             switch $0 {
             case .value:

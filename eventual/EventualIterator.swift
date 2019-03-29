@@ -93,7 +93,7 @@ public struct EventualIterator {
 
 public extension Eventual {
     
-    public static func results<T: Collection>(of collection: T) -> Eventual<[EventualResult<Subject>]> where T.Iterator.Element: Eventual<Subject> {
+    static func results<T: Collection>(of collection: T) -> Eventual<[EventualResult<Subject>]> where T.Iterator.Element: Eventual<Subject> {
         var input = collection.makeIterator()
         var results: [EventualResult<Subject>] = []
         
@@ -128,7 +128,7 @@ public extension Eventual {
         return iterator.eventual.either { _ in return results }
     }
 
-    public static func resultValues<T: Collection>(of collection: T) -> Eventual<[Subject]> where T.Iterator.Element: Eventual<Subject> {
+    static func resultValues<T: Collection>(of collection: T) -> Eventual<[Subject]> where T.Iterator.Element: Eventual<Subject> {
         let pending = results(of: collection)
         
         guard pending.hasResult else {

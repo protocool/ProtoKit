@@ -26,7 +26,7 @@ import CoreData
 
 public extension NSManagedObjectContext {
 
-    public final func realize<T>(_ object: T) throws -> T {
+    final func realize<T>(_ object: T) throws -> T {
         switch object {
         case let realizable as ContextRealizable:
             return try realizable.realized(by: self) as! T
