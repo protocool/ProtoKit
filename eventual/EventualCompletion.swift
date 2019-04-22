@@ -58,22 +58,15 @@ public final class EventualCompletion<Subject>: NSObject, ProgressReporting {
      */
     @discardableResult
     public init(with eventual: Eventual<Subject>, trackedBy underlyingProgress: Progress? = nil, resultHandler: @escaping (EventualResult<Subject>) -> Void) {
-        let (completion, resolve, reject) = Eventual<Subject>.make()
-        let progress = Progress.discreteProgress(totalUnitCount: 1)
-        
-        completion.either(resultHandler)
+        let singleCompletion = SingleCompletion(resultHandler)
+        let progress = CompletionProgress(completion: singleCompletion)
         
         eventual.either { result in
             if underlyingProgress == nil {
                 progress.completedUnitCount = progress.totalUnitCount
             }
             
-            do { resolve(try result.checkedValue()) }
-            catch { reject(error) }
-        }
-        
-        progress.cancellationHandler = {
-            reject(CocoaError(.userCancelled))
+            singleCompletion.complete(with: result)
         }
         
         if let child = underlyingProgress {
@@ -114,6 +107,48 @@ public final class EventualCompletion<Subject>: NSObject, ProgressReporting {
         })
     }
     
+    private class SingleCompletion {
+        private var resultHandler: ((EventualResult<Subject>) -> Void)?
+        
+        init(_ resultHandler: @escaping (EventualResult<Subject>) -> Void) {
+            self.resultHandler = resultHandler
+        }
+        
+        func complete(with result: EventualResult<Subject>) {
+            precondition(Thread.isMainThread, "Internal consistency violated: complete() should only be called from the main thread.")
+            
+            guard let handler = resultHandler else { return }
+            resultHandler = nil
+            
+            handler(result)
+        }
+        
+        func cancel() {
+            guard Thread.isMainThread else {
+                DispatchQueue.main.async { self.cancel() }
+                return
+            }
+            
+            complete(with: .error(CocoaError(.userCancelled)))
+        }
+    }
+    
+    private class CompletionProgress: Progress {
+        private let completion: SingleCompletion
+        
+        init(completion: SingleCompletion) {
+            self.completion = completion
+            super.init(parent: nil, userInfo: nil)
+            
+            totalUnitCount = 1
+        }
+        
+        override func cancel() {
+            super.cancel()
+            completion.cancel()
+        }
+    }
+
 }
 
 public extension Eventual {
