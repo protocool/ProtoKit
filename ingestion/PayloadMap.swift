@@ -331,6 +331,9 @@ public struct AttributeMap<T: AttributeInfo>: ScalarApplication, AttributeValueT
         case .transformableAttributeType: fallthrough
         case .undefinedAttributeType:
             return valueObject
+                        
+        @unknown default:
+            preconditionFailure("unexpected attribute type for transformed object: \(attributeType)")
         }
     }
     
